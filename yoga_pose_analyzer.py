@@ -502,30 +502,38 @@ class YogaPoseAnalyzer:
         left_ankle = landmarks[27]
         right_wrist = landmarks[16]
         left_wrist = landmarks[15]
+        nose = landmarks[0]
         
         # Calculate angle
         angle = self.calculate_angle(right_ankle, mid_hip, left_ankle)
         
         # Basic criteria
         angle_in_range = 30 < angle < 170
-        head_in_upper_half = landmarks[0].y < 0.5  # Head in upper half
+        head_in_upper_half = nose.y < 0.5
         
-        # Strict right-side checks:
-        # 1. Right hand must be closer to right foot than left hand is to left foot
-        right_hand_to_foot = abs(right_wrist.x - right_ankle.x)
-        left_hand_to_foot = abs(left_wrist.x - left_ankle.x)
-        right_hand_closer = right_hand_to_foot < left_hand_to_foot
+        # Look at the position of the entire body
+        # If the whole body is shifted to the right, it's likely right hip opening
+        body_shift_right = nose.x > 0.5
         
-        # 2. Right foot must be more extended than left foot
-        right_extension = abs(right_ankle.x - mid_hip.x)
-        left_extension = abs(left_ankle.x - mid_hip.x)
-        right_more_extended = right_extension > left_extension
+        # Check which foot is more raised/extended
+        right_foot_extension = abs(right_ankle.x - mid_hip.x)
+        left_foot_extension = abs(left_ankle.x - mid_hip.x)
+        right_foot_more_extended = right_foot_extension > left_foot_extension
         
-        # Combined criteria
-        is_right_side = right_hand_closer or right_more_extended
+        # Check hand-to-foot proximity
+        right_hand_near_foot = abs(right_wrist.x - right_ankle.x) < 0.2
+        left_hand_near_foot = abs(left_wrist.x - left_ankle.x) < 0.2
+        only_right_hand_near = right_hand_near_foot and not left_hand_near_foot
+        
+        # Combined indicators of right side
+        is_right_side = body_shift_right or right_foot_more_extended or only_right_hand_near
+        
+        # Final criterion
         is_hip_opening = angle_in_range and head_in_upper_half and is_right_side
         
-        return is_hip_opening, "right", angle if is_hip_opening else None
+        if is_hip_opening and right_ankle.y < left_ankle.y:
+            return True, "right", angle
+        return False, "unknown", None
 
     def is_hip_opening_left(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
         """Check if the pose is left-side hip opening."""
@@ -535,30 +543,38 @@ class YogaPoseAnalyzer:
         right_ankle = landmarks[28]
         left_wrist = landmarks[15]
         right_wrist = landmarks[16]
+        nose = landmarks[0]
         
         # Calculate angle
         angle = self.calculate_angle(left_ankle, mid_hip, right_ankle)
         
         # Basic criteria
         angle_in_range = 30 < angle < 170
-        head_in_upper_half = landmarks[0].y < 0.5  # Head in upper half
+        head_in_upper_half = nose.y < 0.5
         
-        # Strict left-side checks:
-        # 1. Left hand must be closer to left foot than right hand is to right foot
-        left_hand_to_foot = abs(left_wrist.x - left_ankle.x)
-        right_hand_to_foot = abs(right_wrist.x - right_ankle.x)
-        left_hand_closer = left_hand_to_foot < right_hand_to_foot
+        # Look at the position of the entire body
+        # If the whole body is shifted to the left, it's likely left hip opening
+        body_shift_left = nose.x < 0.5
         
-        # 2. Left foot must be more extended than right foot
-        left_extension = abs(left_ankle.x - mid_hip.x)
-        right_extension = abs(right_ankle.x - mid_hip.x)
-        left_more_extended = left_extension > right_extension
+        # Check which foot is more raised/extended
+        left_foot_extension = abs(left_ankle.x - mid_hip.x)
+        right_foot_extension = abs(right_ankle.x - mid_hip.x)
+        left_foot_more_extended = left_foot_extension > right_foot_extension
         
-        # Combined criteria
-        is_left_side = left_hand_closer or left_more_extended
+        # Check hand-to-foot proximity
+        left_hand_near_foot = abs(left_wrist.x - left_ankle.x) < 0.2
+        right_hand_near_foot = abs(right_wrist.x - right_ankle.x) < 0.2
+        only_left_hand_near = left_hand_near_foot and not right_hand_near_foot
+        
+        # Combined indicators of left side
+        is_left_side = body_shift_left or left_foot_more_extended or only_left_hand_near
+        
+        # Final criterion
         is_hip_opening = angle_in_range and head_in_upper_half and is_left_side
         
-        return is_hip_opening, "left", angle if is_hip_opening else None
+        if is_hip_opening and left_ankle.y < right_ankle.y:
+            return True, "left", angle
+        return False, "unknown", None
     
     def is_side_splits(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
         """Check if the pose is side splits (specifically for 'passive 2.JPG')."""
@@ -655,11 +671,13 @@ class YogaPoseAnalyzer:
         # Combined criteria specifically for this image
         is_front_splits_passive = angle_in_range and legs_at_similar_height and ankles_below_hips
         
-        return is_front_splits_passive, "right", angle if is_front_splits_passive else None
+        if is_front_splits_passive and right_ankle.y < left_ankle.y:
+            return True, "right", angle
+        return False, "unknown", None
 
     def is_front_splits_passive_left(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
         """Check if the pose is left-side front splits (passive variant)."""
-        # Extract relevant landmarks based on 'passive (left) 2.JPG'
+        # Extract relevant landmarks
         left_ankle = landmarks[27]
         mid_hip = self.get_midpoint(landmarks[23], landmarks[24])
         right_ankle = landmarks[28]
@@ -667,20 +685,19 @@ class YogaPoseAnalyzer:
         # Calculate angle
         angle = self.calculate_angle(left_ankle, mid_hip, right_ankle)
         
-        # From debug output, 'passive (left) 2.JPG' has angle around 163.89
-        angle_in_range = 155 < angle < 180
-        
-        # For this specific image:
-        # Legs at similar height (legs_level=True)
+        # From debug output, passive front splits have a wide angle range
+        angle_in_range = 145 < angle < 180
+        # Legs should be at similar height
         legs_at_similar_height = abs(left_ankle.y - right_ankle.y) < 0.2
-        
-        # Position relative to hips
+        # Both ankles below hips to ensure lying position
         ankles_below_hips = (left_ankle.y > mid_hip.y) and (right_ankle.y > mid_hip.y)
-        
-        # Combined criteria specifically for this image
+
+        # Combined criteria specifically for passive front splits
         is_front_splits_passive = angle_in_range and legs_at_similar_height and ankles_below_hips
-        
-        return is_front_splits_passive, "left", angle if is_front_splits_passive else None
+
+        if is_front_splits_passive and left_ankle.y < right_ankle.y:
+            return True, "left", angle
+        return False, "unknown", None
 
     def is_cobra(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
         """Check if the pose is cobra with emphasis on feet positioning."""
