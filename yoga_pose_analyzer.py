@@ -57,6 +57,7 @@ import numpy as np
 import os
 import csv
 from typing import List, Tuple, Dict, Optional
+import argparse
 
 class YogaPoseAnalyzer:
     def __init__(self, image_folder: str, output_csv: str):
@@ -79,17 +80,16 @@ class YogaPoseAnalyzer:
         
         # Define the pose types and their corresponding detection functions
         self.poses = {
-            "lunge_right": self.is_lunge_right,
-            "lunge_left": self.is_lunge_left,
+            "side_splits": self.is_side_splits,
             "cobra": self.is_cobra,
             "hip_opening_right": self.is_hip_opening_right,
             "hip_opening_left": self.is_hip_opening_left,
-            "side_splits": self.is_side_splits,
-            "side_splits_lying": self.is_side_splits_lying,
             "front_splits_right": self.is_front_splits_right,
             "front_splits_left": self.is_front_splits_left,
             "front_splits_passive_right": self.is_front_splits_passive_right,
-            "front_splits_passive_left": self.is_front_splits_passive_left
+            "front_splits_passive_left": self.is_front_splits_passive_left,
+            "lunge_left": self.is_lunge_right,
+            "lunge_right": self.is_lunge_left
         }
 
         self.pose_landmarks = {
@@ -99,7 +99,6 @@ class YogaPoseAnalyzer:
             "hip_opening_right": [(28, "mid_hip", 27)],
             "hip_opening_left": [(27, "mid_hip", 28)],
             "side_splits": [(28, "mid_hip", 27)],
-            "side_splits_lying": [(28, "mid_hip", 27)],
             "front_splits_right": [(28, "mid_hip", 27)],
             "front_splits_left": [(27, "mid_hip", 28)],
             "front_splits_passive_right": [(28, "mid_hip", 27)],
@@ -123,6 +122,15 @@ class YogaPoseAnalyzer:
             self.analyze_image(img_path, img_file)
         
         # Save results to CSV
+        self.save_results()
+
+    def process_images_debug(self):
+        """Process all images in debug mode (detailed per-image debug)."""
+        image_files = [f for f in os.listdir(self.image_folder)
+                       if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        for img_file in image_files:
+            img_path = os.path.join(self.image_folder, img_file)
+            self.analyze_image_debug(img_path, img_file)
         self.save_results()
     
     def analyze_image(self, img_path: str, img_filename: str):
@@ -423,76 +431,82 @@ class YogaPoseAnalyzer:
     
     # Individual pose detection methods
     def is_lunge_right(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
-        """Check if the pose is a right-side lunge."""
-        # Extract relevant landmarks
-        right_ankle = landmarks[28]
-        right_knee = landmarks[26]
-        right_hip = landmarks[24]
+        """Check if the pose is a right-side lunge (right leg in back)."""
         left_ankle = landmarks[27]
-        
-        # Create derived point for outer knee angle
+        right_ankle = landmarks[28]
+        # Determine back leg by vertical position: back ankle lower in image (greater y)
+        back_leg_is_right = right_ankle.y > left_ankle.y
+        if not back_leg_is_right:
+            return False, "unknown", None
+
+        # Use the right leg as back leg
+        back_knee  = landmarks[26]    # right knee
+        back_ankle = landmarks[28]    # right ankle
+
+        # Derived point to the right of the knee
         derived_point = type('obj', (object,), {
-            'x': right_knee.x + 0.1,  # Add 10% of image width
-            'y': right_knee.y,       # Same y value
-            'z': right_knee.z
+            'x': back_knee.x + 0.1,
+            'y': back_knee.y,
+            'z': back_knee.z
         })
-        
-        # Calculate angle
-        angle = self.calculate_angle(right_ankle, right_knee, derived_point)
-        
-        # Define criteria for right lunge
-        # 1. Angle should be in range for lunges
-        angle_in_range = 50 < angle < 130
-        
-        # 2. Right ankle should be roughly under the right knee
-        ankle_under_knee = abs(right_ankle.x - right_knee.x) < 0.20
-        
-        # 3. Left ankle should be behind right ankle
-        left_ankle_behind = left_ankle.y > right_ankle.y
-        
-        # 4. Right hip should be above right knee
-        hip_above_knee = right_hip.y < right_knee.y
-        
-        # Combined criteria
-        is_lunge = angle_in_range and ankle_under_knee and left_ankle_behind and hip_above_knee
-        
-        return is_lunge, "right", angle if is_lunge else None
+
+        # Calculate angle at back knee
+        angle = self.calculate_angle(back_ankle, back_knee, derived_point)
+
+        # Lunge criteria: angle in range, ankle under knee, vertical separation, horizontal separation
+        angle_in_range = 60 < angle < 120
+        # horizontal tolerance between ankle and knee
+        ankle_under_knee = abs(back_ankle.x - back_knee.x) < 0.5
+
+        # require vertical separation of feet to distinguish from splits
+        ankles_vertical_sep = abs(left_ankle.y - right_ankle.y) > 0.05
+
+        # lunge feet should not be too far apart horizontally
+        ankles_horizontal_sep = abs(left_ankle.x - right_ankle.x) < 0.4
+
+        # combined lunge criteria
+        is_lunge = angle_in_range and ankle_under_knee and ankles_vertical_sep and ankles_horizontal_sep
+
+        return is_lunge, "left", angle if is_lunge else None
 
     def is_lunge_left(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
-        """Check if the pose is a left-side lunge."""
-        # Extract relevant landmarks
+        """Check if the pose is a left-side lunge (left leg in back)."""
         left_ankle = landmarks[27]
-        left_knee = landmarks[25]
-        left_hip = landmarks[23]
         right_ankle = landmarks[28]
-        
-        # Create derived point for outer knee angle
+        # Determine back leg by vertical position: back ankle lower in image (greater y)
+        back_leg_is_left = left_ankle.y > right_ankle.y
+        if not back_leg_is_left:
+            return False, "unknown", None
+
+        # Use the left leg as back leg
+        back_knee  = landmarks[25]    # left knee
+        back_ankle = landmarks[27]    # left ankle
+
+        # Derived point to the left of the knee
         derived_point = type('obj', (object,), {
-            'x': left_knee.x - 0.1,  # Subtract 10% of image width
-            'y': left_knee.y,       # Same y value
-            'z': left_knee.z
+            'x': back_knee.x - 0.1,
+            'y': back_knee.y,
+            'z': back_knee.z
         })
-        
-        # Calculate angle
-        angle = self.calculate_angle(left_ankle, left_knee, derived_point)
-        
-        # Define criteria for left lunge
-        # 1. Angle should be in range for lunges
-        angle_in_range = 50 < angle < 130
-        
-        # 2. Left ankle should be roughly under the left knee
-        ankle_under_knee = abs(left_ankle.x - left_knee.x) < 0.20
-        
-        # 3. Right ankle should be behind left ankle
-        right_ankle_behind = right_ankle.y > left_ankle.y
-        
-        # 4. Left hip should be above left knee
-        hip_above_knee = left_hip.y < left_knee.y
-        
-        # Combined criteria
-        is_lunge = angle_in_range and ankle_under_knee and right_ankle_behind and hip_above_knee
-        
-        return is_lunge, "left", angle if is_lunge else None
+
+        # Calculate angle at back knee
+        angle = self.calculate_angle(back_ankle, back_knee, derived_point)
+
+        # Lunge criteria: angle in range, ankle under knee, vertical separation, horizontal separation
+        angle_in_range = 60 < angle < 120
+        # horizontal tolerance between ankle and knee
+        ankle_under_knee = abs(back_ankle.x - back_knee.x) < 0.5
+
+        # require vertical separation of feet to distinguish from splits
+        ankles_vertical_sep = abs(left_ankle.y - right_ankle.y) > 0.05
+
+        # lunge feet should not be too far apart horizontally
+        ankles_horizontal_sep = abs(left_ankle.x - right_ankle.x) < 0.4
+
+        # combined lunge criteria
+        is_lunge = angle_in_range and ankle_under_knee and ankles_vertical_sep and ankles_horizontal_sep
+
+        return is_lunge, "right", angle if is_lunge else None
 
     def is_hip_opening_right(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
         """Check if the pose is right-side hip opening."""
@@ -509,7 +523,8 @@ class YogaPoseAnalyzer:
         
         # Basic criteria
         angle_in_range = 30 < angle < 170
-        head_in_upper_half = nose.y < 0.5
+        # Require head in upper third of the frame for hip opening
+        head_in_upper_third = nose.y < (1.0 / 3.0)
         
         # Look at the position of the entire body
         # If the whole body is shifted to the right, it's likely right hip opening
@@ -518,6 +533,9 @@ class YogaPoseAnalyzer:
         # Check which foot is more raised/extended
         right_foot_extension = abs(right_ankle.x - mid_hip.x)
         left_foot_extension = abs(left_ankle.x - mid_hip.x)
+        # Prevent extremely wide stances (e.g. side splits) from being classified as hip opening
+        ankles_apart = abs(left_ankle.x - right_ankle.x)
+        ankles_not_too_wide = ankles_apart < 0.3
         right_foot_more_extended = right_foot_extension > left_foot_extension
         
         # Check hand-to-foot proximity
@@ -529,7 +547,7 @@ class YogaPoseAnalyzer:
         is_right_side = body_shift_right or right_foot_more_extended or only_right_hand_near
         
         # Final criterion
-        is_hip_opening = angle_in_range and head_in_upper_half and is_right_side
+        is_hip_opening = angle_in_range and head_in_upper_third and is_right_side and ankles_not_too_wide
         
         if is_hip_opening and right_ankle.y < left_ankle.y:
             return True, "right", angle
@@ -550,7 +568,8 @@ class YogaPoseAnalyzer:
         
         # Basic criteria
         angle_in_range = 30 < angle < 170
-        head_in_upper_half = nose.y < 0.5
+        # Require head in upper third of the frame for hip opening
+        head_in_upper_third = nose.y < (1.0 / 3.0)
         
         # Look at the position of the entire body
         # If the whole body is shifted to the left, it's likely left hip opening
@@ -559,6 +578,9 @@ class YogaPoseAnalyzer:
         # Check which foot is more raised/extended
         left_foot_extension = abs(left_ankle.x - mid_hip.x)
         right_foot_extension = abs(right_ankle.x - mid_hip.x)
+        # Prevent extremely wide stances (e.g. side splits) from being classified as hip opening
+        ankles_apart = abs(left_ankle.x - right_ankle.x)
+        ankles_not_too_wide = ankles_apart < 0.3
         left_foot_more_extended = left_foot_extension > right_foot_extension
         
         # Check hand-to-foot proximity
@@ -570,34 +592,57 @@ class YogaPoseAnalyzer:
         is_left_side = body_shift_left or left_foot_more_extended or only_left_hand_near
         
         # Final criterion
-        is_hip_opening = angle_in_range and head_in_upper_half and is_left_side
+        is_hip_opening = angle_in_range and head_in_upper_third and is_left_side and ankles_not_too_wide
         
         if is_hip_opening and left_ankle.y < right_ankle.y:
             return True, "left", angle
         return False, "unknown", None
     
     def is_side_splits(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
-        """Check if the pose is side splits (specifically for 'passive 2.JPG')."""
+        """Check if the pose is side splits based on actual data patterns."""
         # Extract relevant landmarks
         right_ankle = landmarks[28]
-        mid_hip = self.get_midpoint(landmarks[23], landmarks[24])
         left_ankle = landmarks[27]
-        
+        right_knee = landmarks[26]
+        left_knee = landmarks[25]
+        hip_left = landmarks[23]
+        hip_right = landmarks[24]
+
+        # Calculate midpoint between hips
+        mid_hip = self.get_midpoint(hip_left, hip_right)
+
         # Calculate angle
         angle = self.calculate_angle(right_ankle, mid_hip, left_ankle)
-        
-        # From debug output, 'passive 2.JPG' has angle around 125.16
-        # And legs are at similar height (legs_level=True)
-        angle_in_range = 110 < angle < 140
-        legs_at_similar_height = abs(left_ankle.y - right_ankle.y) < 0.2
-        
-        # SPECIFIC CHECK FOR THIS IMAGE:
-        # Ankles should be roughly level with hips
-        ankles_level_with_hips = abs(mid_hip.y - (left_ankle.y + right_ankle.y)/2) < 0.2
-        
-        # Combined criteria tailored for 'passive 2.JPG'
-        is_side_splits = angle_in_range and legs_at_similar_height and ankles_level_with_hips
-        
+
+        # Conditionally exclude passive front splits: both ankles below hips, similar height, and wide angle
+        ankles_below_hips = (left_ankle.y > mid_hip.y) and (right_ankle.y > mid_hip.y)
+        feet_level = abs(left_ankle.y - right_ankle.y) < 0.15
+        if ankles_below_hips and feet_level and angle > 110:
+            return False, "unknown", None
+
+        # Based on your debug output, side splits have a wide range of angles (lowered threshold)
+        angle_acceptable = angle > 30
+
+        # Key characteristics from your data:
+        # 1. Ankles are at similar height (y-value)
+        ankles_at_similar_height = abs(left_ankle.y - right_ankle.y) < 0.15
+
+        # 2. Ankles are wide apart horizontally
+        ankles_wide_apart = abs(left_ankle.x - right_ankle.x) > 0.30  # Increased threshold to avoid lunge misclassification
+
+        # 3. Legs should be spread outward from hips (knees outside of hips)
+        legs_spread_outward = (
+            left_knee.x > hip_left.x or
+            right_knee.x < hip_right.x
+        )
+
+        # Combined criteria with less emphasis on angle
+        is_side_splits = (
+            angle_acceptable and
+            ankles_at_similar_height and
+            ankles_wide_apart
+        )
+
         return is_side_splits, "none", angle if is_side_splits else None
 
     def is_front_splits_right(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
@@ -612,9 +657,9 @@ class YogaPoseAnalyzer:
         angle = self.calculate_angle(right_ankle, mid_hip, left_ankle)
         
         # Active front splits criteria
-        angle_wide_enough = angle > 120
+        angle_wide_enough = angle > 90
         right_leg_forward = right_ankle.y < left_ankle.y
-        legs_at_different_heights = abs(right_ankle.y - left_ankle.y) > 0.15
+        legs_at_different_heights = abs(right_ankle.y - left_ankle.y) > 0.10
         
         # Key distinction: Head in lower third for active front splits
         head_in_lower_third = nose.y > 0.6
@@ -636,9 +681,9 @@ class YogaPoseAnalyzer:
         angle = self.calculate_angle(left_ankle, mid_hip, right_ankle)
         
         # Active front splits criteria
-        angle_wide_enough = angle > 120
+        angle_wide_enough = angle > 90
         left_leg_forward = left_ankle.y < right_ankle.y
-        legs_at_different_heights = abs(left_ankle.y - right_ankle.y) > 0.15
+        legs_at_different_heights = abs(left_ankle.y - right_ankle.y) > 0.10
         
         # Key distinction: Head in lower third for active front splits
         head_in_lower_third = nose.y > 0.6
@@ -658,18 +703,22 @@ class YogaPoseAnalyzer:
         # Calculate angle
         angle = self.calculate_angle(right_ankle, mid_hip, left_ankle)
         
-        # From debug output, 'passive (right) 2.JPG' has angle around 154.15
-        angle_in_range = 145 < angle < 180
+        # Relaxed angle range: angle > 110
+        angle_in_range = angle > 110
         
         # For this specific image:
         # Legs at similar height (legs_level=True)
-        legs_at_similar_height = abs(left_ankle.y - right_ankle.y) < 0.2
+        legs_at_similar_height = abs(left_ankle.y - right_ankle.y) < 0.25
         
         # Position relative to hips
         ankles_below_hips = (left_ankle.y > mid_hip.y) and (right_ankle.y > mid_hip.y)
+
+        # Exclude narrow stances (e.g., lunges)
+        ankles_apart = abs(left_ankle.x - right_ankle.x)
+        sufficient_width = ankles_apart > 0.30
         
         # Combined criteria specifically for this image
-        is_front_splits_passive = angle_in_range and legs_at_similar_height and ankles_below_hips
+        is_front_splits_passive = angle_in_range and legs_at_similar_height and ankles_below_hips and sufficient_width
         
         if is_front_splits_passive and right_ankle.y < left_ankle.y:
             return True, "right", angle
@@ -685,15 +734,19 @@ class YogaPoseAnalyzer:
         # Calculate angle
         angle = self.calculate_angle(left_ankle, mid_hip, right_ankle)
         
-        # From debug output, passive front splits have a wide angle range
-        angle_in_range = 145 < angle < 180
+        # Relaxed angle range: angle > 110
+        angle_in_range = angle > 110
         # Legs should be at similar height
-        legs_at_similar_height = abs(left_ankle.y - right_ankle.y) < 0.2
+        legs_at_similar_height = abs(left_ankle.y - right_ankle.y) < 0.25
         # Both ankles below hips to ensure lying position
         ankles_below_hips = (left_ankle.y > mid_hip.y) and (right_ankle.y > mid_hip.y)
 
+        # Exclude narrow stances (e.g., lunges)
+        ankles_apart = abs(left_ankle.x - right_ankle.x)
+        sufficient_width = ankles_apart > 0.30
+
         # Combined criteria specifically for passive front splits
-        is_front_splits_passive = angle_in_range and legs_at_similar_height and ankles_below_hips
+        is_front_splits_passive = angle_in_range and legs_at_similar_height and ankles_below_hips and sufficient_width
 
         if is_front_splits_passive and left_ankle.y < right_ankle.y:
             return True, "left", angle
@@ -727,41 +780,23 @@ class YogaPoseAnalyzer:
         # Use left_shoulder directly to avoid any confusion with variable names
         angle = self.calculate_angle(left_shoulder, derived_hip, derived_point)
         
-        # Keep the rest of the identification logic that's working
-        feet_close_together = abs(left_ankle.x - right_ankle.x) < 0.05
-        profile_view = 0.2 < nose.x < 0.8 and abs(nose.x - 0.5) > 0.1
-        upper_third_empty = nose.y > 0.33
-        lying_flat = abs(nose.y - (left_ankle.y + right_ankle.y)/2) < 0.2
-        shoulders_elevated = (left_shoulder.y + right_shoulder.y)/2 < (left_hip.y + right_hip.y)/2
+        # Relaxed thresholds for more robust cobra detection
+        feet_close_together = abs(left_ankle.x - right_ankle.x) < 0.10
+        # Ensure both feet lie on the same horizontal side of the face (nose)
+        feet_same_side = (left_ankle.x < nose.x and right_ankle.x < nose.x) or \
+                         (left_ankle.x > nose.x and right_ankle.x > nose.x)
+        # Ensure ankles are at the same vertical level (feet flat)
+        ankles_level = abs(left_ankle.y - right_ankle.y) < 0.07
+        profile_view = 0.1 < nose.x < 0.9 and abs(nose.x - 0.5) > 0.05
+        upper_third_empty = nose.y > 0.40
+        lying_flat = abs(nose.y - (left_ankle.y + right_ankle.y) / 2) < 0.30
+        shoulders_elevated = (left_shoulder.y + right_shoulder.y) / 2 < (left_hip.y + right_hip.y) / 2 - 0.05
         
-        is_cobra = feet_close_together and profile_view and upper_third_empty and lying_flat and shoulders_elevated
+        is_cobra = feet_close_together and feet_same_side and ankles_level and profile_view and upper_third_empty and lying_flat and shoulders_elevated
         
         return is_cobra, "none", angle if is_cobra else None
 
-    def is_side_splits_lying(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
-        """Check if the pose is side splits while lying down (specifically for 'side_split_test.JPG')."""
-        # Extract landmarks
-        right_ankle = landmarks[28]
-        mid_hip = self.get_midpoint(landmarks[23], landmarks[24])
-        left_ankle = landmarks[27]
-        
-        # From debug output, 'side_split_test.JPG' has:
-        # angle=123.47, legs_level=True
-        angle = self.calculate_angle(right_ankle, mid_hip, left_ankle)
-        
-        # Specific criteria for this image
-        angle_in_range = 110 < angle < 135
-        legs_at_similar_height = abs(left_ankle.y - right_ankle.y) < 0.2
-        
-        # Additional check for lying position:
-        # Head and hips should be roughly at same height
-        nose = landmarks[0]
-        head_and_hips_level = abs(nose.y - mid_hip.y) < 0.2
-        
-        # Combined criteria specifically for this image
-        is_side_splits_lying = angle_in_range and legs_at_similar_height and head_and_hips_level
-        
-        return is_side_splits_lying, "none", angle if is_side_splits_lying else None
+    # (is_side_splits_lying method removed)
         
     def save_results(self):
         """Save the analysis results to a CSV file."""
@@ -966,6 +1001,7 @@ class YogaPoseAnalyzer:
             if is_pose:
                 print(f"✓ {pose_name} detected! Side: {side}, Angle: {angle:.2f}°")
                 detected_pose = (pose_name, side, angle)
+                break
             else:
                 # More detailed rejection reasons for specific poses
                 if pose_name == "lunge_right":
@@ -1001,7 +1037,7 @@ class YogaPoseAnalyzer:
                     angle = self.calculate_angle(landmarks[28], derived_point, landmarks[27])
                     head_lower = landmarks[0].y > 0.5
                     leg_symmetry = abs(abs(landmarks[27].x - mid_hip.x) - abs(landmarks[28].x - mid_hip.x)) < 0.15
-                    print(f"✗ {pose_name}: angle={angle:.2f}° (needs >130), " +
+                    print(f"✗ {pose_name}: angle={angle:.2f}° (needs >70), " +
                         f"head lower={head_lower}, leg symmetry={leg_symmetry}")
                 
                 elif pose_name == "hip_opening_right" or pose_name == "hip_opening_left":
@@ -1048,12 +1084,23 @@ class YogaPoseAnalyzer:
         print("-" * 40)
 
 def main():
-    # Example usage
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', choices=['analyze','debug'], default='analyze',
+                        help='Run mode: "analyze" for standard analysis, "debug" for per-image debug output')
+    parser.add_argument('--image_folder', default='path/to/yoga/images',
+                        help='Folder containing yoga images')
+    parser.add_argument('--output_csv', default='yoga_pose_analysis_results.csv',
+                        help='Output CSV path')
+    args = parser.parse_args()
+
     analyzer = YogaPoseAnalyzer(
-        image_folder="path/to/yoga/images",
-        output_csv="yoga_pose_analysis_results.csv"
+        image_folder=args.image_folder,
+        output_csv=args.output_csv
     )
-    analyzer.process_images()
+    if args.mode == 'debug':
+        analyzer.process_images_debug()
+    else:
+        analyzer.process_images()
 
 
 if __name__ == "__main__":

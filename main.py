@@ -43,6 +43,9 @@ def parse_arguments():
     parser.add_argument('--output_folder', type=str, default='results',
                         help='Path to save visualization outputs (for visualize mode)')
 
+    parser.add_argument('--debug_output', action='store_true',
+                        help='Enable detailed debugging output (print per-image debug info in debug mode)')
+
     
     args = parser.parse_args()
     
@@ -205,15 +208,30 @@ def visualize_results(input_csv: str, output_folder: str):
     return True
 
 
-def debug_poses(input_folder: str):
+def debug_poses(input_folder: str, debug_output: bool):
     """
     Launch the debugging tool for yoga poses.
     
     Args:
         input_folder: Path to the folder containing images
+        debug_output: Enable detailed debugging output
     """
+    # Initialize analyzer for debug
+    analyzer = YogaPoseAnalyzer(
+        image_folder=input_folder,
+        output_csv='yoga_pose_analysis_results.csv'
+    )
+
     print(f"Launching debugging tool for images in {input_folder}")
-    
+
+    if debug_output:
+        print("Running with detailed debugging output...")
+        for img_file in os.listdir(input_folder):
+            if img_file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                img_path = os.path.join(input_folder, img_file)
+                analyzer.analyze_image_debug(img_path, img_file)
+    else:
+        analyzer.process_images()
     try:
         debugger = YogaPoseDebugger(input_folder)
         debugger.show()
@@ -235,7 +253,7 @@ def main():
     elif args.mode == 'visualize':
         success = visualize_results(args.input_csv, args.output_folder)
     elif args.mode == 'debug':
-        success = debug_poses(args.input_folder)
+        success = debug_poses(args.input_folder, args.debug_output)
     else:
         print(f"Unknown mode: {args.mode}")
         success = False
