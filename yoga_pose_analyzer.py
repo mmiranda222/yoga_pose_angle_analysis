@@ -88,8 +88,7 @@ class YogaPoseAnalyzer:
             "front_splits_left": self.is_front_splits_left,
             "front_splits_passive_right": self.is_front_splits_passive_right,
             "front_splits_passive_left": self.is_front_splits_passive_left,
-            "lunge_left": self.is_lunge_right,
-            "lunge_right": self.is_lunge_left
+            "lunge": self.is_lunge,
         }
 
         self.pose_landmarks = {
@@ -145,6 +144,14 @@ class YogaPoseAnalyzer:
         image = cv2.imread(img_path)
         if image is None:
             print(f"Error reading image: {img_path}")
+            # Ensure entry exists for summary
+            self.results.append({
+                "filename": img_filename,
+                "pose_type": "unknown",
+                "pose_variant": "unknown",
+                "pose_side": "unknown",
+                "angle": None
+            })
             return
         
         # Convert to RGB for MediaPipe
@@ -156,6 +163,14 @@ class YogaPoseAnalyzer:
         
         if not results.pose_landmarks:
             print(f"No pose landmarks found in: {img_path}")
+            # Ensure entry exists for summary
+            self.results.append({
+                "filename": img_filename,
+                "pose_type": "unknown",
+                "pose_variant": "unknown",
+                "pose_side": "unknown",
+                "angle": None
+            })
             return
         
         # Extract landmarks
@@ -190,9 +205,12 @@ class YogaPoseAnalyzer:
         debug_path = os.path.join(debug_dir, f"debug_{img_filename}")
         cv2.imwrite(debug_path, debug_image)
         
-        # Store the results (only filename and angle)
+        # Store the results with detailed columns
         self.results.append({
             "filename": img_filename,
+            "pose_type": pose_type,
+            "pose_variant": pose_variant,
+            "pose_side": pose_side,
             "angle": angle
         })
         
@@ -319,6 +337,14 @@ class YogaPoseAnalyzer:
         Returns:
             String indicating "active" or "passive"
         """
+        # Handle generic lunge label
+        if pose_type == "lunge":
+            # Compute the back-leg angle for generic lunge
+            _, _, angle_val = self.poses["lunge"](landmarks, (0, 0, 0))
+            if angle_val is None:
+                return "unknown"
+            # Active if smaller angle
+            return "active" if angle_val < 90 else "passive"
         if features is None and pose_type != "unknown":
             # If features weren't provided, extract them now
             features = self.extract_pose_features(landmarks)
@@ -427,83 +453,43 @@ class YogaPoseAnalyzer:
         })
     
     # Individual pose detection methods
-    def is_lunge_right(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
-        """Check if the pose is a right-side lunge (right leg in back)."""
+    def is_lunge(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
+        """
+        Determine if the stance is a lunge, based on back-leg knee angle and stance width.
+        """
         left_ankle = landmarks[27]
         right_ankle = landmarks[28]
-        # Determine back leg by vertical position: back ankle lower in image (greater y)
-        back_leg_is_right = right_ankle.y > left_ankle.y
-        if not back_leg_is_right:
-            return False, "unknown", None
+        # Decide which leg is back by its ankle being higher in the image (smaller y)
+        if left_ankle.y < right_ankle.y:
+            back_knee = landmarks[25]
+            back_ankle = landmarks[27]
+            derived_point = type('obj', (object,), {
+                'x': back_knee.x - 0.1,
+                'y': back_knee.y,
+                'z': back_knee.z
+            })
+            side = "right"
+        else:
+            back_knee = landmarks[26]
+            back_ankle = landmarks[28]
+            derived_point = type('obj', (object,), {
+                'x': back_knee.x + 0.1,
+                'y': back_knee.y,
+                'z': back_knee.z
+            })
+            side = "left"
 
-        # Use the right leg as back leg
-        back_knee  = landmarks[26]    # right knee
-        back_ankle = landmarks[28]    # right ankle
-
-        # Derived point to the right of the knee
-        derived_point = type('obj', (object,), {
-            'x': back_knee.x + 0.1,
-            'y': back_knee.y,
-            'z': back_knee.z
-        })
-
-        # Calculate angle at back knee
+        # Compute the knee angle at the back leg
         angle = self.calculate_angle(back_ankle, back_knee, derived_point)
 
-        # Lunge criteria: angle in range, ankle under knee, vertical separation, horizontal separation
-        angle_in_range = 60 < angle < 120
-        # horizontal tolerance between ankle and knee
-        ankle_under_knee = abs(back_ankle.x - back_knee.x) < 0.5
+        # Criteria: angle in lunge range, knee aligned, and ankles not too wide (to exclude splits)
+        angle_in_range = 50 < angle < 120
+        knee_under_ankle = abs(back_knee.x - back_ankle.x) < 0.5
+        ankles_not_wide = abs(left_ankle.x - right_ankle.x) < 0.4
 
-        # require vertical separation of feet to distinguish from splits
-        ankles_vertical_sep = abs(left_ankle.y - right_ankle.y) > 0.05
+        is_lunge = angle_in_range and knee_under_ankle and ankles_not_wide
+        return is_lunge, side, angle if is_lunge else (False, side, None)
 
-        # lunge feet should not be too far apart horizontally
-        ankles_horizontal_sep = abs(left_ankle.x - right_ankle.x) < 0.4
-
-        # combined lunge criteria
-        is_lunge = angle_in_range and ankle_under_knee and ankles_vertical_sep and ankles_horizontal_sep
-
-        return is_lunge, "left", angle if is_lunge else None
-
-    def is_lunge_left(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
-        """Check if the pose is a left-side lunge (left leg in back)."""
-        left_ankle = landmarks[27]
-        right_ankle = landmarks[28]
-        # Determine back leg by vertical position: back ankle lower in image (greater y)
-        back_leg_is_left = left_ankle.y > right_ankle.y
-        if not back_leg_is_left:
-            return False, "unknown", None
-
-        # Use the left leg as back leg
-        back_knee  = landmarks[25]    # left knee
-        back_ankle = landmarks[27]    # left ankle
-
-        # Derived point to the left of the knee
-        derived_point = type('obj', (object,), {
-            'x': back_knee.x - 0.1,
-            'y': back_knee.y,
-            'z': back_knee.z
-        })
-
-        # Calculate angle at back knee
-        angle = self.calculate_angle(back_ankle, back_knee, derived_point)
-
-        # Lunge criteria: angle in range, ankle under knee, vertical separation, horizontal separation
-        angle_in_range = 60 < angle < 120
-        # horizontal tolerance between ankle and knee
-        ankle_under_knee = abs(back_ankle.x - back_knee.x) < 0.5
-
-        # require vertical separation of feet to distinguish from splits
-        ankles_vertical_sep = abs(left_ankle.y - right_ankle.y) > 0.05
-
-        # lunge feet should not be too far apart horizontally
-        ankles_horizontal_sep = abs(left_ankle.x - right_ankle.x) < 0.4
-
-        # combined lunge criteria
-        is_lunge = angle_in_range and ankle_under_knee and ankles_vertical_sep and ankles_horizontal_sep
-
-        return is_lunge, "right", angle if is_lunge else None
 
     def is_hip_opening_right(self, landmarks, img_shape) -> Tuple[bool, str, Optional[float]]:
         """Check if the pose is right-side hip opening."""
@@ -798,7 +784,7 @@ class YogaPoseAnalyzer:
     def save_results(self):
         """Save the analysis results to a CSV file."""
         with open(self.output_csv, 'w', newline='') as csvfile:
-            fieldnames = ['filename', 'angle']
+            fieldnames = ['filename', 'pose_type', 'pose_variant', 'pose_side', 'angle']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             for result in self.results:
@@ -856,40 +842,44 @@ class YogaPoseAnalyzer:
         # If a pose was detected, draw the angle and pose name
         if pose_type != "unknown" and angle is not None:
             # Get landmarks used for angle calculation based on pose type
-            if pose_type in self.pose_landmarks:
+            # Unified lunge visualization
+            if pose_type.startswith("lunge"):
+                left_ankle = landmarks[27]
+                right_ankle = landmarks[28]
+                # Decide back leg by higher ankle (smaller y)
+                if left_ankle.y < right_ankle.y:
+                    bk_idx, ba_idx = 25, 27
+                    derived_x = landmarks[25].x - 0.1
+                else:
+                    bk_idx, ba_idx = 26, 28
+                    derived_x = landmarks[26].x + 0.1
+                # Build the three visualization points
+                p1 = (int(landmarks[ba_idx].x * w), int(landmarks[ba_idx].y * h))
+                p2 = (int(landmarks[bk_idx].x * w), int(landmarks[bk_idx].y * h))
+                p3 = (int(derived_x * w), int(landmarks[bk_idx].y * h))
+                points = [p1, p2, p3]
+                # Draw lunge angle lines and label
+                cv2.line(vis_image, p1, p2, (0, 255, 0), 2)
+                cv2.line(vis_image, p2, p3, (0, 255, 0), 2)
+                cv2.circle(vis_image, p2, 5, (0, 0, 255), -1)
+                text_pos = (p2[0] + 10, p2[1] - 10)
+                cv2.putText(vis_image, f"{angle:.1f}°", text_pos,
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+            elif pose_type in self.pose_landmarks:
+                # Existing pose_landmarks logic
                 landmark_indices = self.pose_landmarks[pose_type][0]
-                    
-                # Create derived points for visualization
                 derived_points = {}
-                    
-                # For lunge right - derived point to the right of the knee
-                if pose_type == "lunge_right":
-                    right_knee = landmarks[26]
-                    derived_points["derived_right"] = (
-                        int((right_knee.x + 0.1) * w), 
-                        int(right_knee.y * h)
-                    )
-                    
-                # For lunge left - derived point to the left of the knee
-                elif pose_type == "lunge_left":
-                    left_knee = landmarks[25]
-                    derived_points["derived_left"] = (
-                        int((left_knee.x - 0.1) * w), 
-                        int(left_knee.y * h)
-                    )
-                    
                 # For cobra - derived points
-                elif pose_type == "cobra":
+                if pose_type == "cobra":
                     left_hip = landmarks[23]
                     derived_points["derived_hip"] = (
                         int(left_hip.x * w), 
-                        int((left_hip.y + 0.025) * h)  # Use the value that works (0.025)
+                        int((left_hip.y + 0.025) * h)
                     )
                     derived_points["derived_point"] = (
                         int((left_hip.x - 0.15) * w), 
-                        int((left_hip.y + 0.025) * h)  # Same height as derived_hip
+                        int((left_hip.y + 0.025) * h)
                     )
-                
                 # For poses that need mid_hip
                 if "mid_hip" not in derived_points:
                     mid_hip = (
@@ -897,14 +887,12 @@ class YogaPoseAnalyzer:
                         int(((landmarks[23].y + landmarks[24].y) / 2) * h)
                     )
                     derived_points["mid_hip"] = mid_hip
-                
                 # For poses that need derived_hip but don't have it set yet
                 if "derived_hip" not in derived_points and pose_type != "cobra":
                     derived_points["derived_hip"] = (
                         derived_points["mid_hip"][0],
-                        int(derived_points["mid_hip"][1] + 0.025 * h)  # Reduced from 0.1 to 0.025
+                        int(derived_points["mid_hip"][1] + 0.025 * h)
                     )
-                    
                 # Extract points for angle visualization
                 points = []
                 for idx in landmark_indices:
@@ -913,21 +901,21 @@ class YogaPoseAnalyzer:
                         points.append(point)
                     elif idx in derived_points:
                         points.append(derived_points[idx])
-                    
+
                 # Draw angle lines and vertex
                 if len(points) == 3:
                     # Draw lines forming the angle
                     cv2.line(vis_image, points[0], points[1], (0, 255, 0), 2)
                     cv2.line(vis_image, points[1], points[2], (0, 255, 0), 2)
-                        
+
                     # Mark the vertex
                     cv2.circle(vis_image, points[1], 5, (0, 0, 255), -1)
-                        
+
                     # Add angle text
                     text_pos = (points[1][0] + 10, points[1][1] - 10)
                     cv2.putText(vis_image, f"{angle:.1f}°", text_pos, 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-                
+
             # Add pose type at the top of the image
             cv2.putText(vis_image, f"Pose: {pose_type}", (10, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
@@ -995,29 +983,23 @@ class YogaPoseAnalyzer:
             
             if is_pose:
                 print(f"✓ {pose_name} detected! Side: {side}, Angle: {angle:.2f}°")
+                # Unified lunge debug handling
+                if pose_name == "lunge":
+                    # Debug: show back-leg points for generic lunge
+                    left_ankle = landmarks[27]
+                    right_ankle = landmarks[28]
+                    if left_ankle.y > right_ankle.y:
+                        back_knee, back_ankle = landmarks[25], landmarks[27]
+                        derived = type('obj',(object,),{'x':back_knee.x - 0.1,'y':back_knee.y,'z':back_knee.z})
+                    else:
+                        back_knee, back_ankle = landmarks[26], landmarks[28]
+                        derived = type('obj',(object,),{'x':back_knee.x + 0.1,'y':back_knee.y,'z':back_knee.z})
+                    print(f"    Points for angle: back_ankle ({back_ankle.x:.2f}, {back_ankle.y:.2f}), back_knee ({back_knee.x:.2f}, {back_knee.y:.2f}), derived ({derived.x:.2f}, {derived.y:.2f})")
                 detected_pose = (pose_name, side, angle)
                 break
             else:
                 # More detailed rejection reasons for specific poses
-                if pose_name == "lunge_right":
-                    angle = self.calculate_angle(landmarks[28], landmarks[26], type('obj', (object,), {'x': landmarks[26].x + 0.1, 'y': landmarks[26].y, 'z': landmarks[26].z}))
-                    back_foot_higher = landmarks[27].y < landmarks[28].y
-                    not_too_high = landmarks[27].y > 0.5
-                    head_upper = landmarks[0].y < 0.5
-                    print(f"✗ {pose_name}: angle={angle:.2f}° (needs 70-120), " +
-                        f"back foot higher={back_foot_higher}, not too high={not_too_high}, " +
-                        f"head upper={head_upper}")
-                
-                elif pose_name == "lunge_left":
-                    angle = self.calculate_angle(landmarks[27], landmarks[25], type('obj', (object,), {'x': landmarks[25].x - 0.1, 'y': landmarks[25].y, 'z': landmarks[25].z}))
-                    back_foot_higher = landmarks[28].y < landmarks[27].y
-                    not_too_high = landmarks[28].y > 0.5
-                    head_upper = landmarks[0].y < 0.5
-                    print(f"✗ {pose_name}: angle={angle:.2f}° (needs 70-120), " +
-                        f"back foot higher={back_foot_higher}, not too high={not_too_high}, " +
-                        f"head upper={head_upper}")
-                
-                elif pose_name == "cobra":
+                if pose_name == "cobra":
                     angle = self.calculate_angle(landmarks[11], 
                                         type('obj', (object,), {'x': landmarks[23].x, 'y': landmarks[23].y + 0.002, 'z': landmarks[23].z}), 
                                         type('obj', (object,), {'x': landmarks[23].x - 0.2, 'y': landmarks[23].y + 0.002, 'z': landmarks[23].z}))
@@ -1044,6 +1026,25 @@ class YogaPoseAnalyzer:
                     ankles_below = landmarks[27].y > landmarks[23].y and landmarks[28].y > landmarks[24].y
                     print(f"✗ {pose_name}: angle={angle:.2f}° (needs 30-130), " +
                         f"head upper={head_upper}, ankles below hips={ankles_below}")
+                
+                elif pose_name == "lunge":
+                    # Debug rejection for generic lunge
+                    left_ankle = landmarks[27]
+                    right_ankle = landmarks[28]
+                    if left_ankle.y > right_ankle.y:
+                        # left leg back
+                        p1, p2 = landmarks[27], landmarks[25]
+                        dir_text = "left-back"
+                        derived_pt = type('obj',(object,),{'x':p2.x - 0.1,'y':p2.y,'z':p2.z})
+                    else:
+                        # right leg back
+                        p1, p2 = landmarks[28], landmarks[26]
+                        dir_text = "right-back"
+                        derived_pt = type('obj',(object,),{'x':p2.x + 0.1,'y':p2.y,'z':p2.z})
+                    angle_dbg = self.calculate_angle(p1, p2, derived_pt)
+                    back_higher = (p1.y < (landmarks[27].y + landmarks[28].y)/2)
+                    print(f"✗ {pose_name}: angle={angle_dbg:.2f}° (needs 60-120), back_dir={dir_text}, back_higher={back_higher}")
+                    print(f"    Derived point (x,y): ({derived_pt.x:.2f}, {derived_pt.y:.2f})")
                 
                 else:
                     print(f"✗ {pose_name} not detected")

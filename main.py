@@ -89,16 +89,17 @@ def analyze_poses(input_folder: str, output_csv: str):
         # Show a summary of the results
         if os.path.exists(output_csv):
             df = pd.read_csv(output_csv)
+            # Summary of filename and angle only
             print("\nAnalysis Summary:")
             print(f"Total images processed: {len(df)}")
-            print(f"Poses identified: {len(df[df['pose_type'] != 'unknown'])}")
-            print(f"Poses not identified: {len(df[df['pose_type'] == 'unknown'])}")
-            
-            # Count by pose type
-            pose_counts = df['pose_type'].value_counts()
-            print("\nPose distribution:")
-            for pose, count in pose_counts.items():
-                print(f"  {pose}: {count}")
+            if 'angle' in df.columns:
+                num_missing = df['angle'].isna().sum()
+                print(f"Images with missing angle: {num_missing}")
+                valid_angles = df['angle'].dropna()
+                if len(valid_angles) > 0:
+                    print(f"Angle stats: min {valid_angles.min():.2f}, max {valid_angles.max():.2f}, mean {valid_angles.mean():.2f}")
+            else:
+                print("No 'angle' column found to summarize.")
         
     except Exception as e:
         print(f"Error during analysis: {e}")

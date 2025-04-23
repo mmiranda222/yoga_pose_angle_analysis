@@ -102,5 +102,63 @@ master = master.sort_values(
 # 5. Save
 # -------
 
+ # Round angle values to 4 decimal places in the master dataset
+master['angle'] = master['angle'].round(4)
 master.to_csv(OUTPUT_CSV, index=False)
 print(f"Master dataset written to {OUTPUT_CSV}")
+
+# 6. Pivot to get passive and active angles per pose
+pivot = master.pivot_table(
+    index=["participant_id", "pose_name"],
+    columns="variant",
+    values="angle"
+).reset_index()
+# Rename columns for clarity
+pivot = pivot.rename(columns={"passive": "passive_angle", "active": "active_angle"})
+
+# 6a. Manually fill missing passive angles for specific participant–pose combos
+pivot.loc[
+    (pivot.participant_id == 1) & (pivot.pose_name == "side_splits"),
+    "passive_angle"
+] = 134.01
+pivot.loc[
+    (pivot.participant_id == 2) & (pivot.pose_name == "side_splits"),
+    "passive_angle"
+] = 116.66
+pivot.loc[
+    (pivot.participant_id == 3) & (pivot.pose_name == "side_splits"),
+    "passive_angle"
+] = 135.89
+pivot.loc[
+    (pivot.participant_id == 3) & (pivot.pose_name == "front_splits left"),
+    "passive_angle"
+] = 156.91
+pivot.loc[
+    (pivot.participant_id == 3) & (pivot.pose_name == "front_splits right"),
+    "passive_angle"
+] = 156.59
+pivot.loc[
+    (pivot.participant_id == 4) & (pivot.pose_name == "side_splits"),
+    "passive_angle"
+] = 100.28
+pivot.loc[
+    (pivot.participant_id == 8) & (pivot.pose_name == "side_splits"),
+    "passive_angle"
+] = 78.80
+# Compute normalized difference
+pivot["norm_diff"] = (pivot["passive_angle"] - pivot["active_angle"]) / pivot["passive_angle"]
+
+# Save pivoted dataset
+PIVOT_CSV = "yoga_pivoted_dataset.csv"
+ # Round passive_angle, active_angle, and norm_diff to 4 decimal places
+pivot[['passive_angle','active_angle','norm_diff']] = pivot[['passive_angle','active_angle','norm_diff']].round(4)
+pivot.to_csv(PIVOT_CSV, index=False)
+print(f"Pivoted dataset written to {PIVOT_CSV}")
+
+# 7. Compute MWI per participant
+mwi = pivot.groupby("participant_id")["norm_diff"].mean().reset_index(name="MWI")
+MWI_CSV = "yoga_MWI.csv"
+ # Round MWI values to 4 decimal places
+mwi['MWI'] = mwi['MWI'].round(4)
+mwi.to_csv(MWI_CSV, index=False)
+print(f"MWI per participant written to {MWI_CSV}")
