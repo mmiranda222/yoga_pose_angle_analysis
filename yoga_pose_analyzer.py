@@ -114,23 +114,23 @@ class YogaPoseAnalyzer:
     
     def process_images(self):
         """Process all images in the folder and analyze the yoga poses."""
-        image_files = [f for f in os.listdir(self.image_folder) 
-                      if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        
-        for img_file in image_files:
-            img_path = os.path.join(self.image_folder, img_file)
-            self.analyze_image(img_path, img_file)
-        
+        # Recursively traverse all subdirectories for images
+        for root, _, files in os.walk(self.image_folder):
+            for img_file in files:
+                if img_file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    img_path = os.path.join(root, img_file)
+                    self.analyze_image(img_path, img_file)
         # Save results to CSV
         self.save_results()
 
     def process_images_debug(self):
         """Process all images in debug mode (detailed per-image debug)."""
-        image_files = [f for f in os.listdir(self.image_folder)
-                       if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        for img_file in image_files:
-            img_path = os.path.join(self.image_folder, img_file)
-            self.analyze_image_debug(img_path, img_file)
+        # Recursively traverse all subdirectories for images in debug mode
+        for root, _, files in os.walk(self.image_folder):
+            for img_file in files:
+                if img_file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    img_path = os.path.join(root, img_file)
+                    self.analyze_image_debug(img_path, img_file)
         self.save_results()
     
     def analyze_image(self, img_path: str, img_filename: str):
@@ -190,12 +190,9 @@ class YogaPoseAnalyzer:
         debug_path = os.path.join(debug_dir, f"debug_{img_filename}")
         cv2.imwrite(debug_path, debug_image)
         
-        # Store the results
+        # Store the results (only filename and angle)
         self.results.append({
             "filename": img_filename,
-            "pose_type": pose_type,
-            "pose_variant": pose_variant,
-            "pose_side": pose_side,
             "angle": angle
         })
         
@@ -801,13 +798,11 @@ class YogaPoseAnalyzer:
     def save_results(self):
         """Save the analysis results to a CSV file."""
         with open(self.output_csv, 'w', newline='') as csvfile:
-            fieldnames = ['filename', 'pose_type', 'pose_variant', 'pose_side', 'angle']
+            fieldnames = ['filename', 'angle']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                
             writer.writeheader()
             for result in self.results:
                 writer.writerow(result)
-            
         print(f"Results saved to {self.output_csv}")
         
     def visualize_pose(self, image, landmarks, pose_type, angle):
