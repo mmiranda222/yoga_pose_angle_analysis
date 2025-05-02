@@ -1,73 +1,13 @@
-def determine_variant(self, landmarks, pose_type: str, features=None) -> str:
-    """
-    Determine if the pose is active or passive.
-    
-    Args:
-        landmarks: The pose landmarks
-        pose_type: The identified pose type
-        features: Pre-extracted features (optional)
-        
-    Returns:
-        String indicating "active" or "passive"
-    """
-    # For most poses, the active variant has a smaller angle than the passive variant
-    # This is a general rule that we'll use as a baseline
-    
-    if pose_type == "unknown":
-        return "unknown"
-    
-    # Extract the angle from the pose detection
-    angle = None
-    for pose_name, pose_checker in self.poses.items():
-        if pose_name == pose_type:
-            _, _, angle_value = pose_checker(landmarks, (0, 0, 0))  # Image shape doesn't matter here
-            angle = angle_value
-            break
-    
-    if angle is None:
-        return "unknown"
-            
-    # As you mentioned, generally passive angles are greater than active angles
-    if pose_type.startswith("lunge"):
-        # For lunges, smaller angle typically means more active
-        return "active" if angle < 90 else "passive"
-            
-    elif pose_type == "cobra":
-        # For cobra, more extension (larger angle) typically means more active
-        return "active" if angle > 140 else "passive"
-            
-    elif pose_type.startswith("hip_opening"):
-        # For hip opening, smaller angle typically means more active
-        return "active" if angle < 60 else "passive"
-            
-    elif pose_type == "side_splits":
-        # For side splits, wider angle typically means more active
-        return "active" if angle > 155 else "passive"
-            
-    elif pose_type.startswith("front_splits"):
-        # For front splits, wider angle typically means more active
-        return "active" if angle > 155 else "passive"
-    
-    # If we don't have specific criteria for this pose type
-    return "unknown"
-
-import cv2
-import mediapipe as mp
-import numpy as np
 import os
+import cv2
 import csv
-from typing import List, Tuple, Dict, Optional
+import numpy as np
+import mediapipe as mp
 import argparse
+from typing import List, Tuple, Dict, Optional
 
 class YogaPoseAnalyzer:
     def __init__(self, image_folder: str, output_csv: str):
-        """
-        Initialize the Yoga Pose Analyzer.
-        
-        Args:
-            image_folder: Path to the folder containing yoga pose images
-            output_csv: Path where the output CSV will be saved
-        """
         self.image_folder = image_folder
         self.output_csv = output_csv
         self.mp_pose = mp.solutions.pose
@@ -77,8 +17,6 @@ class YogaPoseAnalyzer:
             enable_segmentation=True,
             min_detection_confidence=0.5
         )
-        
-        # Define the pose types and their corresponding detection functions
         self.poses = {
             "side_splits": self.is_side_splits,
             "cobra": self.is_cobra,
@@ -90,7 +28,6 @@ class YogaPoseAnalyzer:
             "front_splits_passive_left": self.is_front_splits_passive_left,
             "lunge": self.is_lunge,
         }
-
         self.pose_landmarks = {
             "lunge_right": [(28, 26, "derived_right")],
             "lunge_left": [(27, 25, "derived_left")],
@@ -103,13 +40,36 @@ class YogaPoseAnalyzer:
             "front_splits_passive_right": [(28, "mid_hip", 27)],
             "front_splits_passive_left": [(27, "mid_hip", 28)]
         }
-        
-        # Results storage
         self.results = []
-        
-        # Visualization settings
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_drawing_styles = mp.solutions.drawing_styles
+
+    def determine_variant(self, landmarks, pose_type: str, features=None) -> str:
+        if pose_type == "unknown":
+            return "unknown"
+
+        angle = None
+        for pose_name, pose_checker in self.poses.items():
+            if pose_name == pose_type:
+                _, _, angle_value = pose_checker(landmarks, (0, 0, 0))
+                angle = angle_value
+                break
+
+        if angle is None:
+            return "unknown"
+
+        if pose_type.startswith("lunge"):
+            return "active" if angle < 90 else "passive"
+        elif pose_type == "cobra":
+            return "active" if angle > 140 else "passive"
+        elif pose_type.startswith("hip_opening"):
+            return "active" if angle < 60 else "passive"
+        elif pose_type == "side_splits":
+            return "active" if angle > 155 else "passive"
+        elif pose_type.startswith("front_splits"):
+            return "active" if angle > 155 else "passive"
+
+        return "unknown"
     
     def process_images(self):
         """Process all images in the folder and analyze the yoga poses."""
