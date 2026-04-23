@@ -46,12 +46,12 @@ python main.py --mode debug --image_folder path/to/images --output_csv debug_res
 
 ## Project structure
 .
-├── yoga_pose_analyzer.py       # Core angle computation and MWI logic
-├── main.py                     # CLI entry point
-├── assemble_master_dataset.py  # Optional dataset assembly
-├── debug_tool.py               # Interactive landmark debugger
-├── requirements.txt
-└── data/                       # Excluded — participant privacy
+|-- yoga_pose_analyzer.py       # Core angle computation and MWI logic
+|-- main.py                     # CLI entry point
+|-- assemble_master_dataset.py  # Optional dataset assembly
+|-- debug_tool.py               # Interactive landmark debugger
+|-- requirements.txt
+`-- data/                       # Excluded - participant privacy
 
 ## Thesis
 
