@@ -1,76 +1,73 @@
 # Yoga Pose Angle Analysis (YPAA)
 
-The Yoga Pose Angle Analysis (YPAA) system is a computer vision-based pipeline designed to analyze active vs. passive range of motion using yoga poses. It computes a novel metric—the **Musculoskeletal Wellness Index (MWI)**—to quantify musculoskeletal health.
+A computer vision pipeline that measures active vs. passive range of motion using yoga poses, and computes a novel metric — the **Musculoskeletal Wellness Index (MWI)** — linking functional mobility to clinical outcomes.
 
-## 📌 Project Overview
+Built as the core system of my IE University thesis, **awarded Best Thesis (CS & AI, 2025).**
 
-This project uses MediaPipe and OpenCV to:
-- Automatically classify yoga poses (between 5 options)
-- Detect joint landmarks
-- Measure angles using trigonometric calculations
-- Compute AROM vs. PROM differences
-- Derive the MWI per participant
+<!-- Add a screenshot or GIF here of the pipeline annotating a pose. This is the single highest-impact change you can make. -->
+<!-- ![YPAA in action](docs/ypaa_demo.png) -->
 
-The pipeline was used in a research study comparing musculoskeletal health between yoga practitioners and non-practitioners.
+## What it does
 
-## 🧠 Features
+The pipeline takes standardized yoga pose images, extracts joint landmarks with MediaPipe, and computes the angular difference between a participant's *passive* (assisted) and *active* (unassisted) range of motion. The resulting MWI quantifies how much control someone has over their own functional movement — not just how flexible they are.
 
-- Pose recognition and classification (active/passive variants)
-- Angle calculation for each pose
-- MWI computation and export to CSV
-- Debug image generation with annotated joint landmarks
-- Support for both batch processing and debugging modes
+Applied to a pilot study of 9 participants, expanded via a literature-informed resampling strategy (designed with a statistics professor), the metric showed significant associations with:
 
-## ⚙️ Dependencies
+- **Chronic pain** (t = 2.9, p = .02)
+- **Recent injury** (t = 2.5, p = .04)
+- **Regular strength training** (improved mobility, t = 3.1, p = .02)
+- Moderate inverse correlations with quality of life and mental well-being
+
+Pain status and strength training remained the most influential predictors in multivariable regression (adjusted R² = 0.68).
+
+## Pipeline
+
+1. **Pose classification** across 5 standardized poses
+2. **Landmark detection** via MediaPipe Pose
+3. **Angle computation** using vector trigonometry at the relevant joints
+4. **AROM vs. PROM comparison** per participant per pose
+5. **MWI derivation** and CSV export
+
+## Running it
 
 ```bash
 pip install -r requirements.txt
-```
 
-## 🛠️ Major Libraries Used
-
-- `mediapipe`: For pose estimation and landmark tracking.
-- `opencv-python`: For image loading, processing, and visualization.
-- `numpy`: For numerical calculations, especially angle computation.
-- `matplotlib`: For plotting and visualizing results.
-- `pandas`: For handling tabular data and exporting analysis outputs.
-
-## 🚀 Usage
-Run analysis mode:
-```bash
+# Analysis mode
 python main.py --mode analyze --image_folder path/to/images --output_csv results.csv
-```
-Run debug mode (opens debug software to play around with landmarks in the picture):
-```bash
+
+# Debug mode (interactive landmark inspection)
 python main.py --mode debug --image_folder path/to/images --output_csv debug_results.csv
 ```
 
-## 🗂️ Project Structure
+## Stack
+
+`Python` · `MediaPipe` · `OpenCV` · `NumPy` · `pandas` · `matplotlib`
+
+## Project structure
 .
-├── yoga_pose_analyzer.py       # Core logic
-├── main.py                     # CLI interface
-├── assemble_master_dataset.py # Dataset assembly (optional)
-├── debug_tool.py               # Image debugging utility
-├── requirements.txt            # Python dependencies
-└── data/                       # (Removed from GitHub for privacy reasons)
+├── yoga_pose_analyzer.py       # Core angle computation and MWI logic
+├── main.py                     # CLI entry point
+├── assemble_master_dataset.py  # Optional dataset assembly
+├── debug_tool.py               # Interactive landmark debugger
+├── requirements.txt
+└── data/                       # Excluded — participant privacy
 
-## 🔐 Data Privacy
-The data/ folder is excluded from this repository to comply with participant privacy and ethical considerations.
+## Thesis
 
-## 📄 Thesis Reference
-This project was developed as part of a thesis titled:  
-*Quantifying Mobility: A Comparative Study of Passive and Active Range of Motion Using Yoga-Based Pose Analysis*
+*Quantifying Mobility: A Comparative Study of Passive and Active Range of Motion Using Yoga-Based Pose Analysis.* IE University, 2025. Awarded Best Thesis, CS & AI cohort.
 
-## 👥 Contributions
-- **MWI concept**: Irene Alda  
-- **Development, implementation, and study**: Manuela Miranda  
-- **Synthetic data support**: Dae-Jin Lee  
-- **Code assistance**: Large Language Models (LLMs)
-  
-## 📫 Contact
-For any questions or collaboration opportunities, please open an issue on this repository or reach out via email if applicable.
+## Credits
 
-## 🛠 License
+- **MWI concept:** Irene Alda
+- **Development, pipeline, and study design:** Manuela Miranda
+- **Statistical methodology (resampling strategy):** Dae-Jin Lee
+- **Code assistance:** LLMs
 
-This project is licensed under the [MIT License](LICENSE).
+## Contact
 
+[LinkedIn](https://www.linkedin.com/in/manuela-miranda-5a6516204) · [manuelamirandacarv@gmail.com](mailto:manuelamirandacarv@gmail.com)
+
+## License
+
+[MIT](./LICENSE)
